@@ -1,6 +1,8 @@
 project(voice_allocator_cpp_library_tests LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 11)
 
 add_executable(voice_allocator_cpp_library_tests "tests.cpp")
 

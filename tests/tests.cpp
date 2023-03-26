@@ -1,8 +1,226 @@
 #include <iostream>
+#include <vector>
 #include <voice_allocator.h>
+#include <iostream>
+#include <iomanip>
+
+class TestVoiceStates {
+public:
+    struct State {
+        VoiceNote note;
+
+        enum Gate {
+            Open,
+            Closed,
+        } gate;
+
+        bool operator==(const State& other) const {
+            return note == other.note && gate == other.gate;
+        }
+
+        friend std::ostream& operator<<(std::ostream& os, const State& dt) {
+            const char* gate_str = "UNK";
+            switch(dt.gate) {
+            case Gate::Open:
+                gate_str = "Opn";
+                break;
+            case Gate::Closed:
+                gate_str = "Cls";
+                break;
+            }
+
+            os << (uint32_t)dt.note << " " << gate_str;
+
+            return os;
+        }
+    };
+
+    std::vector<State> data;
+
+    void start(VoiceNote note) {
+        State state = {.note = note, .gate = State::Gate::Open};
+        data.push_back(state);
+    }
+
+    void stop() {
+        State state = {.note = 0, .gate = State::Gate::Closed};
+        data.push_back(state);
+    }
+
+    void reset() {
+        data.clear();
+    }
+
+    bool operator==(const std::vector<State>& other) const {
+        return data == other;
+    }
+
+    void dump_states_diff(const std::vector<State>& other) const {
+        if(data.size() != other.size()) {
+            std::cout << "Size mismatch: " << data.size() << " != " << other.size() << std::endl;
+            return;
+        }
+
+        std::cout << "      State    Expected" << std::endl;
+        for(size_t i = 0; i < data.size(); i++) {
+            if(data[i] == other[i]) {
+                std::cout << "  ";
+            } else {
+                std::cout << "x ";
+            }
+            std::cout << std::setw(2) << i << ": " << data[i] << " != " << other[i] << std::endl;
+        }
+    }
+};
+
+void start(void* context, VoiceNote note) {
+    TestVoiceStates* test_data = (TestVoiceStates*)context;
+    test_data->start(note);
+}
+
+void stop(void* context) {
+    TestVoiceStates* test_data = (TestVoiceStates*)context;
+    test_data->stop();
+}
+
+bool test_voice_allocator_mono_high() {
+    bool success = true;
+
+    TestVoiceStates test_states;
+    VoiceOutputCallbacks callbacks[1] = {{.start = start, .stop = stop}};
+    void* context[1] = {&test_states};
+
+    VoiceManager<1> voice_manager;
+    voice_manager.set_output_callbacks(callbacks, context);
+    voice_manager.set_strategy(VoiceManager<1>::Strategy::UnisonHighestNote);
+
+    voice_manager.note_on(0); // start note 0, note 0 should be playing
+    voice_manager.note_on(1); // start note 1, note 1 should be playing
+    voice_manager.note_on(2); // start note 2, note 2 should be playing
+
+    voice_manager.note_off(1); // stop note 1, note 2 should still be playing
+    voice_manager.note_off(2); // stop note 2, note 0 should still be playing
+    voice_manager.note_off(0); // stop note 0, no notes should be playing
+
+    voice_manager.note_on(2); // start note 2, note 2 should be playing
+    voice_manager.note_on(1); // start note 1, note 2 should be playing
+    voice_manager.note_on(0); // start note 0, note 2 should be playing
+
+    voice_manager.note_off(2); // stop note 2, note 1 should still be playing
+    voice_manager.note_off(1); // stop note 1, note 0 should still be playing
+    voice_manager.note_off(0); // stop note 0, no notes should be playing
+
+    std::vector<TestVoiceStates::State> expected_states = {
+        {0, TestVoiceStates::State::Gate::Open},
+        {1, TestVoiceStates::State::Gate::Open},
+        {2, TestVoiceStates::State::Gate::Open},
+
+        {2, TestVoiceStates::State::Gate::Open},
+        {0, TestVoiceStates::State::Gate::Open},
+        {0, TestVoiceStates::State::Gate::Closed},
+
+        {2, TestVoiceStates::State::Gate::Open},
+        {2, TestVoiceStates::State::Gate::Open},
+        {2, TestVoiceStates::State::Gate::Open},
+
+        {1, TestVoiceStates::State::Gate::Open},
+        {0, TestVoiceStates::State::Gate::Open},
+        {0, TestVoiceStates::State::Gate::Closed},
+    };
+
+    success = success && test_states == expected_states;
+
+    if(!success) {
+        test_states.dump_states_diff(expected_states);
+    }
+
+    return success;
+}
+
+bool test_voice_allocator_mono_low() {
+    bool success = true;
+
+    TestVoiceStates test_states;
+    VoiceOutputCallbacks callbacks[1] = {{.start = start, .stop = stop}};
+    void* context[1] = {&test_states};
+
+    VoiceManager<1> voice_manager;
+    voice_manager.set_output_callbacks(callbacks, context);
+    voice_manager.set_strategy(VoiceManager<1>::Strategy::UnisonLowestNote);
+
+    voice_manager.note_on(0); // start note 0, note 0 should be playing
+    voice_manager.note_on(1); // start note 1, note 0 should be playing
+    voice_manager.note_on(2); // start note 2, note 0 should be playing
+
+    voice_manager.note_off(1); // stop note 1, note 0 should still be playing
+    voice_manager.note_off(2); // stop note 2, note 0 should still be playing
+    voice_manager.note_off(0); // stop note 0, no notes should be playing
+
+    voice_manager.note_on(2); // start note 2, note 2 should be playing
+    voice_manager.note_on(1); // start note 1, note 1 should be playing
+    voice_manager.note_on(0); // start note 0, note 0 should be playing
+
+    voice_manager.note_off(0); // stop note 0, note 1 should still be playing
+    voice_manager.note_off(1); // stop note 1, note 2 should still be playing
+    voice_manager.note_off(2); // stop note 2, no notes should be playing
+
+    std::vector<TestVoiceStates::State> expected_states = {
+        {0, TestVoiceStates::State::Gate::Open},
+        {0, TestVoiceStates::State::Gate::Open},
+        {0, TestVoiceStates::State::Gate::Open},
+
+        {0, TestVoiceStates::State::Gate::Open},
+        {0, TestVoiceStates::State::Gate::Open},
+        {0, TestVoiceStates::State::Gate::Closed},
+
+        {2, TestVoiceStates::State::Gate::Open},
+        {1, TestVoiceStates::State::Gate::Open},
+        {0, TestVoiceStates::State::Gate::Open},
+
+        {1, TestVoiceStates::State::Gate::Open},
+        {2, TestVoiceStates::State::Gate::Open},
+        {0, TestVoiceStates::State::Gate::Closed},
+    };
+
+    success = success && test_states == expected_states;
+
+    if(!success) {
+        test_states.dump_states_diff(expected_states);
+    }
+
+    return success;
+}
+
+struct Test {
+    const char* name;
+    bool (*test)();
+};
+
+#define TEST(name) #name, name
 
 int main() {
-    std::cout << "Tests started!" << std::endl;
-    std::cout << "Tests (0) succeeded!" << std::endl;
-    return 0; // You can put a 1 here to see later that it would generate an error
+    // list of tests
+    Test tests[] = {
+        {TEST(test_voice_allocator_mono_high)},
+        {TEST(test_voice_allocator_mono_low)},
+    };
+
+    // list of test results
+    bool results[sizeof(tests) / sizeof(tests[0])];
+
+    bool success = true;
+
+    // run tests
+    for(size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
+        results[i] = tests[i].test();
+        success = success && results[i];
+    }
+
+    // print results
+    for(size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
+        std::cout << "Test[" << i << "] " << tests[i].name << ": "
+                  << (results[i] ? " PASS " : " FAIL ") << std::endl;
+    }
+
+    return success ? 0 : 1;
 }

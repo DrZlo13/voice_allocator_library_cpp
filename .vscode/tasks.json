@@ -39,7 +39,7 @@
             },
             "type": "shell",
             "dependsOn": "Build",
-            "command": "cd build && ctest",
+            "command": "cd build && ctest --output-on-failure",
             "problemMatcher": []
         },
     ]
