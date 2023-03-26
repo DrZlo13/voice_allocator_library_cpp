@@ -23,8 +23,8 @@ public:
     enum Strategy {
         UnisonHighestNote,
         UnisonLowestNote,
-        UnisonOldestNote,
         UnisonNewestNote,
+        UnisonOldestNote,
     };
 
     VoiceManager() {
@@ -42,7 +42,9 @@ public:
 
     /** Reset the voice manager */
     void reset() {
-        _notes.reset();
+        for(size_t i = 0; i < MaxNotes; i++) {
+            _notes[i] = false;
+        }
     }
 
     /** Set the strategy to use for voice allocation */
@@ -67,14 +69,21 @@ public:
             note = MaxNotes - 1;
         }
 
-        _notes.set(note);
+        _notes[note] = true;
+        _note_stack.push(note);
 
         switch(m_strategy) {
         case UnisonHighestNote:
-            unison_highest_note_on(note);
+            unison_highest_note_on();
             break;
         case UnisonLowestNote:
-            unison_lowest_note_on(note);
+            unison_lowest_note_on();
+            break;
+        case UnisonNewestNote:
+            unison_newest_note_on();
+            break;
+        case UnisonOldestNote:
+            unison_oldest_note_on();
             break;
         default:
             std::abort();
@@ -87,14 +96,21 @@ public:
             note = MaxNotes - 1;
         }
 
-        _notes.reset(note);
+        _notes[note] = false;
+        _note_stack.pop(note);
 
         switch(m_strategy) {
         case UnisonHighestNote:
-            unison_highest_note_off(note);
+            unison_highest_note_off();
             break;
         case UnisonLowestNote:
-            unison_lowest_note_off(note);
+            unison_lowest_note_off();
+            break;
+        case UnisonNewestNote:
+            unison_newest_note_off();
+            break;
+        case UnisonOldestNote:
+            unison_oldest_note_off();
             break;
         default:
             std::abort();
@@ -102,11 +118,62 @@ public:
     }
 
 private:
+    class NoteStack {
+    public:
+        NoteStack() {
+            _top = 0;
+            for(size_t i = 0; i < VoiceManager::MaxNotes; i++) {
+                _notes[i] = 0;
+            }
+        }
+
+        void push(VoiceNote note) {
+            _notes[_top] = note;
+            _top++;
+            if(_top >= VoiceManager::MaxNotes) {
+                _top = VoiceManager::MaxNotes - 1;
+            }
+        }
+
+        void pop(VoiceNote note) {
+            for(size_t i = 0; i < _top; i++) {
+                if(_notes[i] == note) {
+                    for(size_t j = i; j < _top - 1; j++) {
+                        _notes[j] = _notes[j + 1];
+                    }
+                    _top--;
+                    return;
+                }
+            }
+        }
+
+        VoiceNote top() {
+            return _notes[_top - 1];
+        }
+
+        VoiceNote bottom() {
+            return _notes[0];
+        }
+
+        bool empty() {
+            return _top == 0;
+        }
+
+    private:
+        /** Max midi notes count */
+        static constexpr size_t MaxNotes = 128;
+        VoiceNote _notes[MaxNotes];
+        size_t _top;
+    };
+
     /** Max midi notes count */
     static constexpr size_t MaxNotes = 128;
 
     /** The notes that are currently playing */
-    std::bitset<MaxNotes> _notes;
+    bool _notes[MaxNotes];
+
+    /** The note stack */
+    NoteStack _note_stack;
 
     /** The callbacks and context to use for output */
     VoiceOutputCallbacks _callbacks[VoiceCount];
@@ -131,67 +198,78 @@ private:
         }
     }
 
-    void unison_highest_note_on(VoiceNote note) {
-        // get the highest note
-        VoiceNote highest_note = 0;
-
-        for(size_t i = 0; i < MaxNotes; i++) {
-            if(_notes.test(i)) {
-                highest_note = i;
+    bool get_highest_note(VoiceNote& note) {
+        for(size_t i = MaxNotes; i > 0; i--) {
+            size_t index = i - 1;
+            if(_notes[index]) {
+                note = index;
+                return true;
             }
         }
 
+        return false;
+    }
+
+    void unison_highest_note_on() {
+        VoiceNote highest_note;
+        get_highest_note(highest_note);
         all_outputs_start(highest_note);
     }
 
-    void unison_highest_note_off(VoiceNote note) {
-        // get the highest note
+    void unison_highest_note_off() {
         VoiceNote highest_note = 0;
-        bool found = false;
-
-        for(size_t i = 0; i < MaxNotes; i++) {
-            if(_notes.test(i)) {
-                highest_note = i;
-                found = true;
-            }
-        }
-
-        if(found) {
+        if(get_highest_note(highest_note)) {
             all_outputs_start(highest_note);
         } else {
             all_outputs_stop();
         }
     }
 
-    void unison_lowest_note_on(VoiceNote note) {
-        // get the lowest note
-        VoiceNote lowest_note = MaxNotes - 1;
-
+    bool get_lowest_note(VoiceNote& note) {
         for(size_t i = 0; i < MaxNotes; i++) {
-            if(_notes.test(i)) {
-                lowest_note = i;
-                break;
+            if(_notes[i]) {
+                note = i;
+                return true;
             }
         }
 
+        return false;
+    }
+
+    void unison_lowest_note_on() {
+        VoiceNote lowest_note = 0;
+        get_lowest_note(lowest_note);
         all_outputs_start(lowest_note);
     }
 
-    void unison_lowest_note_off(VoiceNote note) {
-        // get the lowest note
-        VoiceNote lowest_note = MaxNotes - 1;
-        bool found = false;
-
-        for(size_t i = 0; i < MaxNotes; i++) {
-            if(_notes.test(i)) {
-                lowest_note = i;
-                found = true;
-                break;
-            }
-        }
-
-        if(found) {
+    void unison_lowest_note_off() {
+        VoiceNote lowest_note = 0;
+        if(get_lowest_note(lowest_note)) {
             all_outputs_start(lowest_note);
+        } else {
+            all_outputs_stop();
+        }
+    }
+
+    void unison_newest_note_on() {
+        all_outputs_start(_note_stack.top());
+    }
+
+    void unison_newest_note_off() {
+        if(!_note_stack.empty()) {
+            all_outputs_start(_note_stack.top());
+        } else {
+            all_outputs_stop();
+        }
+    }
+
+    void unison_oldest_note_on() {
+        all_outputs_start(_note_stack.bottom());
+    }
+
+    void unison_oldest_note_off() {
+        if(!_note_stack.empty()) {
+            all_outputs_start(_note_stack.bottom());
         } else {
             all_outputs_stop();
         }

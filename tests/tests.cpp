@@ -4,7 +4,7 @@
 #include <iostream>
 #include <iomanip>
 
-class TestVoiceStates {
+class TestVoice {
 public:
     struct State {
         VoiceNote note;
@@ -74,19 +74,19 @@ public:
 };
 
 void start(void* context, VoiceNote note) {
-    TestVoiceStates* test_data = (TestVoiceStates*)context;
+    TestVoice* test_data = (TestVoice*)context;
     test_data->start(note);
 }
 
 void stop(void* context) {
-    TestVoiceStates* test_data = (TestVoiceStates*)context;
+    TestVoice* test_data = (TestVoice*)context;
     test_data->stop();
 }
 
 bool test_voice_allocator_mono_high() {
     bool success = true;
 
-    TestVoiceStates test_states;
+    TestVoice test_states;
     VoiceOutputCallbacks callbacks[1] = {{.start = start, .stop = stop}};
     void* context[1] = {&test_states};
 
@@ -110,22 +110,22 @@ bool test_voice_allocator_mono_high() {
     voice_manager.note_off(1); // stop note 1, note 0 should still be playing
     voice_manager.note_off(0); // stop note 0, no notes should be playing
 
-    std::vector<TestVoiceStates::State> expected_states = {
-        {0, TestVoiceStates::State::Gate::Open},
-        {1, TestVoiceStates::State::Gate::Open},
-        {2, TestVoiceStates::State::Gate::Open},
+    std::vector<TestVoice::State> expected_states = {
+        {0, TestVoice::State::Gate::Open},
+        {1, TestVoice::State::Gate::Open},
+        {2, TestVoice::State::Gate::Open},
 
-        {2, TestVoiceStates::State::Gate::Open},
-        {0, TestVoiceStates::State::Gate::Open},
-        {0, TestVoiceStates::State::Gate::Closed},
+        {2, TestVoice::State::Gate::Open},
+        {0, TestVoice::State::Gate::Open},
+        {0, TestVoice::State::Gate::Closed},
 
-        {2, TestVoiceStates::State::Gate::Open},
-        {2, TestVoiceStates::State::Gate::Open},
-        {2, TestVoiceStates::State::Gate::Open},
+        {2, TestVoice::State::Gate::Open},
+        {2, TestVoice::State::Gate::Open},
+        {2, TestVoice::State::Gate::Open},
 
-        {1, TestVoiceStates::State::Gate::Open},
-        {0, TestVoiceStates::State::Gate::Open},
-        {0, TestVoiceStates::State::Gate::Closed},
+        {1, TestVoice::State::Gate::Open},
+        {0, TestVoice::State::Gate::Open},
+        {0, TestVoice::State::Gate::Closed},
     };
 
     success = success && test_states == expected_states;
@@ -140,7 +140,7 @@ bool test_voice_allocator_mono_high() {
 bool test_voice_allocator_mono_low() {
     bool success = true;
 
-    TestVoiceStates test_states;
+    TestVoice test_states;
     VoiceOutputCallbacks callbacks[1] = {{.start = start, .stop = stop}};
     void* context[1] = {&test_states};
 
@@ -164,23 +164,123 @@ bool test_voice_allocator_mono_low() {
     voice_manager.note_off(1); // stop note 1, note 2 should still be playing
     voice_manager.note_off(2); // stop note 2, no notes should be playing
 
-    std::vector<TestVoiceStates::State> expected_states = {
-        {0, TestVoiceStates::State::Gate::Open},
-        {0, TestVoiceStates::State::Gate::Open},
-        {0, TestVoiceStates::State::Gate::Open},
+    std::vector<TestVoice::State> expected_states = {
+        {0, TestVoice::State::Gate::Open},
+        {0, TestVoice::State::Gate::Open},
+        {0, TestVoice::State::Gate::Open},
 
-        {0, TestVoiceStates::State::Gate::Open},
-        {0, TestVoiceStates::State::Gate::Open},
-        {0, TestVoiceStates::State::Gate::Closed},
+        {0, TestVoice::State::Gate::Open},
+        {0, TestVoice::State::Gate::Open},
+        {0, TestVoice::State::Gate::Closed},
 
-        {2, TestVoiceStates::State::Gate::Open},
-        {1, TestVoiceStates::State::Gate::Open},
-        {0, TestVoiceStates::State::Gate::Open},
+        {2, TestVoice::State::Gate::Open},
+        {1, TestVoice::State::Gate::Open},
+        {0, TestVoice::State::Gate::Open},
 
-        {1, TestVoiceStates::State::Gate::Open},
-        {2, TestVoiceStates::State::Gate::Open},
-        {0, TestVoiceStates::State::Gate::Closed},
+        {1, TestVoice::State::Gate::Open},
+        {2, TestVoice::State::Gate::Open},
+        {0, TestVoice::State::Gate::Closed},
     };
+
+    success = success && test_states == expected_states;
+
+    if(!success) {
+        test_states.dump_states_diff(expected_states);
+    }
+
+    return success;
+}
+
+bool test_voice_allocator_mono_newest() {
+    bool success = true;
+
+    TestVoice test_states;
+    VoiceOutputCallbacks callbacks[1] = {{.start = start, .stop = stop}};
+    void* context[1] = {&test_states};
+
+    VoiceManager<1> voice_manager;
+    voice_manager.set_output_callbacks(callbacks, context);
+    voice_manager.set_strategy(VoiceManager<1>::Strategy::UnisonNewestNote);
+
+    std::vector<TestVoice::State> expected_states;
+
+    voice_manager.note_on(0);
+    expected_states.push_back({0, TestVoice::State::Gate::Open});
+    voice_manager.note_on(1);
+    expected_states.push_back({1, TestVoice::State::Gate::Open});
+    voice_manager.note_on(2);
+    expected_states.push_back({2, TestVoice::State::Gate::Open});
+
+    voice_manager.note_off(2);
+    expected_states.push_back({1, TestVoice::State::Gate::Open});
+    voice_manager.note_off(1);
+    expected_states.push_back({0, TestVoice::State::Gate::Open});
+    voice_manager.note_off(0);
+    expected_states.push_back({0, TestVoice::State::Gate::Closed});
+
+    voice_manager.note_on(2);
+    expected_states.push_back({2, TestVoice::State::Gate::Open});
+    voice_manager.note_on(1);
+    expected_states.push_back({1, TestVoice::State::Gate::Open});
+    voice_manager.note_on(0);
+    expected_states.push_back({0, TestVoice::State::Gate::Open});
+
+    voice_manager.note_off(2);
+    expected_states.push_back({0, TestVoice::State::Gate::Open});
+    voice_manager.note_off(1);
+    expected_states.push_back({0, TestVoice::State::Gate::Open});
+    voice_manager.note_off(0);
+    expected_states.push_back({0, TestVoice::State::Gate::Closed});
+
+    success = success && test_states == expected_states;
+
+    if(!success) {
+        test_states.dump_states_diff(expected_states);
+    }
+
+    return success;
+};
+
+bool test_voice_allocator_mono_oldest() {
+    bool success = true;
+
+    TestVoice test_states;
+    VoiceOutputCallbacks callbacks[1] = {{.start = start, .stop = stop}};
+    void* context[1] = {&test_states};
+
+    VoiceManager<1> voice_manager;
+    voice_manager.set_output_callbacks(callbacks, context);
+    voice_manager.set_strategy(VoiceManager<1>::Strategy::UnisonOldestNote);
+
+    std::vector<TestVoice::State> expected_states;
+
+    voice_manager.note_on(0);
+    expected_states.push_back({0, TestVoice::State::Gate::Open});
+    voice_manager.note_on(1);
+    expected_states.push_back({0, TestVoice::State::Gate::Open});
+    voice_manager.note_on(2);
+    expected_states.push_back({0, TestVoice::State::Gate::Open});
+
+    voice_manager.note_off(0);
+    expected_states.push_back({1, TestVoice::State::Gate::Open});
+    voice_manager.note_off(1);
+    expected_states.push_back({2, TestVoice::State::Gate::Open});
+    voice_manager.note_off(2);
+    expected_states.push_back({0, TestVoice::State::Gate::Closed});
+
+    voice_manager.note_on(2);
+    expected_states.push_back({2, TestVoice::State::Gate::Open});
+    voice_manager.note_on(1);
+    expected_states.push_back({2, TestVoice::State::Gate::Open});
+    voice_manager.note_on(0);
+    expected_states.push_back({2, TestVoice::State::Gate::Open});
+
+    voice_manager.note_off(0);
+    expected_states.push_back({2, TestVoice::State::Gate::Open});
+    voice_manager.note_off(1);
+    expected_states.push_back({2, TestVoice::State::Gate::Open});
+    voice_manager.note_off(2);
+    expected_states.push_back({0, TestVoice::State::Gate::Closed});
 
     success = success && test_states == expected_states;
 
@@ -203,6 +303,8 @@ int main() {
     Test tests[] = {
         {TEST(test_voice_allocator_mono_high)},
         {TEST(test_voice_allocator_mono_low)},
+        {TEST(test_voice_allocator_mono_newest)},
+        {TEST(test_voice_allocator_mono_oldest)},
     };
 
     // list of test results
