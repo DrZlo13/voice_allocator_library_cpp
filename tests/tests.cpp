@@ -299,29 +299,22 @@ struct Test {
 #define TEST(name) #name, name
 
 int main() {
-    // list of tests
-    Test tests[] = {
+    std::vector<Test> tests = {
         {TEST(test_voice_allocator_mono_high)},
         {TEST(test_voice_allocator_mono_low)},
         {TEST(test_voice_allocator_mono_newest)},
         {TEST(test_voice_allocator_mono_oldest)},
     };
 
-    // list of test results
-    bool results[sizeof(tests) / sizeof(tests[0])];
-
     bool success = true;
 
     // run tests
-    for(size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
-        results[i] = tests[i].test();
-        success = success && results[i];
-    }
+    for(size_t i = 0; i < tests.size(); i++) {
+        bool result = tests[i].test();
+        success = success && result;
 
-    // print results
-    for(size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
-        std::cout << "Test[" << i << "] " << tests[i].name << ": "
-                  << (results[i] ? " PASS " : " FAIL ") << std::endl;
+        std::cout << "Test[" << i << "] " << tests[i].name << ": ";
+        std::cout << (result ? " PASS " : " FAIL ") << std::endl;
     }
 
     return success ? 0 : 1;
