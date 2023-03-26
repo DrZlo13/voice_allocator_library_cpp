@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.9)
 
-project("voice_allocator_cpp_library")
+project("voice_allocator_library_cpp")
 
 set(INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}
