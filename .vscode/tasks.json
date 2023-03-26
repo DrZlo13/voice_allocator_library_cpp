@@ -1,0 +1,46 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "type": "shell",
+            "command": "cd build && cmake ../CMakeLists.txt -DCMAKE_BUILD_TYPE=Release -G \"Unix Makefiles\" -B . && make -j$(nproc)",
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            },
+            "presentation": {
+                "focus": true
+            }
+        },
+        {
+            "label": "Clean",
+            "type": "shell",
+            "command": "cd build & make clean",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build && Run Tests",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "type": "shell",
+            "dependsOn": "Build",
+            "command": "cd build && ctest",
+            "problemMatcher": []
+        },
+    ]
+}
