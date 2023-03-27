@@ -12,10 +12,19 @@ public:
         enum Gate {
             Open,
             Closed,
+            ReTrigger,
         } gate;
 
         bool operator==(const State& other) const {
-            return note == other.note && gate == other.gate;
+            if(gate != other.gate) {
+                return false;
+            }
+
+            if(gate != Gate::Closed) {
+                return note == other.note;
+            } else {
+                return true;
+            }
         }
 
         friend std::ostream& operator<<(std::ostream& os, const State& dt) {
@@ -23,6 +32,9 @@ public:
             switch(dt.gate) {
             case Gate::Open:
                 gate_str = "Opn";
+                break;
+            case Gate::ReTrigger:
+                gate_str = "Ret";
                 break;
             case Gate::Closed:
                 gate_str = "Cls";
@@ -39,6 +51,11 @@ public:
 
     void start(VoiceNote note) {
         State state = {.note = note, .gate = State::Gate::Open};
+        data.push_back(state);
+    }
+
+    void cont(VoiceNote note) {
+        State state = {.note = note, .gate = State::Gate::ReTrigger};
         data.push_back(state);
     }
 
@@ -73,222 +90,181 @@ public:
     }
 };
 
-void start(void* context, VoiceNote note) {
+static void start(void* context, VoiceNote note) {
     TestVoice* test_data = (TestVoice*)context;
     test_data->start(note);
 }
 
-void stop(void* context) {
+static void cont(void* context, VoiceNote note) {
+    TestVoice* test_data = (TestVoice*)context;
+    test_data->cont(note);
+}
+
+static void stop(void* context) {
     TestVoice* test_data = (TestVoice*)context;
     test_data->stop();
 }
 
-bool test_voice_allocator_mono_high() {
-    bool success = true;
+VoiceOutputCallbacks callbacks_mono[1] = {{.start = start, .cont = cont, .stop = stop}};
 
-    TestVoice test_states;
-    VoiceOutputCallbacks callbacks[1] = {{.start = start, .stop = stop}};
-    void* context[1] = {&test_states};
-
-    VoiceManager<1> voice_manager;
-    voice_manager.set_output_callbacks(callbacks, context);
-    voice_manager.set_strategy(VoiceManager<1>::Strategy::UnisonHighestNote);
-
-    voice_manager.note_on(0); // start note 0, note 0 should be playing
-    voice_manager.note_on(1); // start note 1, note 1 should be playing
-    voice_manager.note_on(2); // start note 2, note 2 should be playing
-
-    voice_manager.note_off(1); // stop note 1, note 2 should still be playing
-    voice_manager.note_off(2); // stop note 2, note 0 should still be playing
-    voice_manager.note_off(0); // stop note 0, no notes should be playing
-
-    voice_manager.note_on(2); // start note 2, note 2 should be playing
-    voice_manager.note_on(1); // start note 1, note 2 should be playing
-    voice_manager.note_on(0); // start note 0, note 2 should be playing
-
-    voice_manager.note_off(2); // stop note 2, note 1 should still be playing
-    voice_manager.note_off(1); // stop note 1, note 0 should still be playing
-    voice_manager.note_off(0); // stop note 0, no notes should be playing
-
-    std::vector<TestVoice::State> expected_states = {
-        {0, TestVoice::State::Gate::Open},
-        {1, TestVoice::State::Gate::Open},
-        {2, TestVoice::State::Gate::Open},
-
-        {2, TestVoice::State::Gate::Open},
-        {0, TestVoice::State::Gate::Open},
-        {0, TestVoice::State::Gate::Closed},
-
-        {2, TestVoice::State::Gate::Open},
-        {2, TestVoice::State::Gate::Open},
-        {2, TestVoice::State::Gate::Open},
-
-        {1, TestVoice::State::Gate::Open},
-        {0, TestVoice::State::Gate::Open},
-        {0, TestVoice::State::Gate::Closed},
-    };
-
-    success = success && test_states == expected_states;
-
-    if(!success) {
-        test_states.dump_states_diff(expected_states);
+template <size_t N> class TestStepMaker {
+public:
+    TestStepMaker(VoiceManager<N>& voice_manager, std::vector<TestVoice::State>& expected_states)
+        : _voice_manager(voice_manager)
+        , _expected_states(expected_states) {
     }
 
-    return success;
+    void on(VoiceNote note, TestVoice::State&& state) {
+        _voice_manager.note_on(note);
+        _expected_states.push_back(state);
+    }
+
+    void off(VoiceNote note, TestVoice::State&& state) {
+        _voice_manager.note_off(note);
+        _expected_states.push_back(state);
+    }
+
+    void on(VoiceNote note) {
+        _voice_manager.note_on(note);
+    }
+
+    void off(VoiceNote note) {
+        _voice_manager.note_off(note);
+    }
+
+    bool test(TestVoice& test_states) {
+        bool success = test_states == _expected_states;
+
+        if(!success) {
+            test_states.dump_states_diff(_expected_states);
+        }
+
+        return success;
+    }
+
+private:
+    VoiceManager<N>& _voice_manager;
+    std::vector<TestVoice::State>& _expected_states;
+};
+
+bool test_voice_allocator_mono_high() {
+    TestVoice test_states;
+    std::vector<TestVoice::State> expected_states;
+    VoiceManager<1> voice_manager;
+    TestStepMaker<1> sm(voice_manager, expected_states);
+
+    void* context[1] = {&test_states};
+
+    voice_manager.set_output_callbacks(callbacks_mono, context);
+    voice_manager.set_strategy(VoiceManager<1>::Strategy::UnisonHighestNote);
+
+    sm.on(0, {0, TestVoice::State::Gate::Open});
+    sm.on(1, {1, TestVoice::State::Gate::Open});
+    sm.on(2, {2, TestVoice::State::Gate::Open});
+
+    sm.off(1);
+    sm.off(2, {0, TestVoice::State::Gate::ReTrigger});
+    sm.off(0, {0, TestVoice::State::Gate::Closed});
+
+    sm.on(2, {2, TestVoice::State::Gate::Open});
+    sm.on(1);
+    sm.on(0);
+
+    sm.off(2, {1, TestVoice::State::Gate::ReTrigger});
+    sm.off(1, {0, TestVoice::State::Gate::ReTrigger});
+    sm.off(0, {0, TestVoice::State::Gate::Closed});
+
+    return sm.test(test_states);
 }
 
 bool test_voice_allocator_mono_low() {
-    bool success = true;
-
     TestVoice test_states;
-    VoiceOutputCallbacks callbacks[1] = {{.start = start, .stop = stop}};
+    std::vector<TestVoice::State> expected_states;
+    VoiceManager<1> voice_manager;
+    TestStepMaker<1> sm(voice_manager, expected_states);
+
     void* context[1] = {&test_states};
 
-    VoiceManager<1> voice_manager;
-    voice_manager.set_output_callbacks(callbacks, context);
+    voice_manager.set_output_callbacks(callbacks_mono, context);
     voice_manager.set_strategy(VoiceManager<1>::Strategy::UnisonLowestNote);
 
-    voice_manager.note_on(0); // start note 0, note 0 should be playing
-    voice_manager.note_on(1); // start note 1, note 0 should be playing
-    voice_manager.note_on(2); // start note 2, note 0 should be playing
+    sm.on(0, {0, TestVoice::State::Gate::Open});
+    sm.on(1);
+    sm.on(2);
 
-    voice_manager.note_off(1); // stop note 1, note 0 should still be playing
-    voice_manager.note_off(2); // stop note 2, note 0 should still be playing
-    voice_manager.note_off(0); // stop note 0, no notes should be playing
+    sm.off(1);
+    sm.off(2);
+    sm.off(0, {0, TestVoice::State::Gate::Closed});
 
-    voice_manager.note_on(2); // start note 2, note 2 should be playing
-    voice_manager.note_on(1); // start note 1, note 1 should be playing
-    voice_manager.note_on(0); // start note 0, note 0 should be playing
+    sm.on(2, {2, TestVoice::State::Gate::Open});
+    sm.on(1, {1, TestVoice::State::Gate::Open});
+    sm.on(0, {0, TestVoice::State::Gate::Open});
 
-    voice_manager.note_off(0); // stop note 0, note 1 should still be playing
-    voice_manager.note_off(1); // stop note 1, note 2 should still be playing
-    voice_manager.note_off(2); // stop note 2, no notes should be playing
+    sm.off(0, {1, TestVoice::State::Gate::ReTrigger});
+    sm.off(1, {2, TestVoice::State::Gate::ReTrigger});
+    sm.off(2, {0, TestVoice::State::Gate::Closed});
 
-    std::vector<TestVoice::State> expected_states = {
-        {0, TestVoice::State::Gate::Open},
-        {0, TestVoice::State::Gate::Open},
-        {0, TestVoice::State::Gate::Open},
-
-        {0, TestVoice::State::Gate::Open},
-        {0, TestVoice::State::Gate::Open},
-        {0, TestVoice::State::Gate::Closed},
-
-        {2, TestVoice::State::Gate::Open},
-        {1, TestVoice::State::Gate::Open},
-        {0, TestVoice::State::Gate::Open},
-
-        {1, TestVoice::State::Gate::Open},
-        {2, TestVoice::State::Gate::Open},
-        {0, TestVoice::State::Gate::Closed},
-    };
-
-    success = success && test_states == expected_states;
-
-    if(!success) {
-        test_states.dump_states_diff(expected_states);
-    }
-
-    return success;
+    return sm.test(test_states);
 }
 
 bool test_voice_allocator_mono_newest() {
-    bool success = true;
-
     TestVoice test_states;
-    VoiceOutputCallbacks callbacks[1] = {{.start = start, .stop = stop}};
+    std::vector<TestVoice::State> expected_states;
+    VoiceManager<1> voice_manager;
+    TestStepMaker<1> sm(voice_manager, expected_states);
+
     void* context[1] = {&test_states};
 
-    VoiceManager<1> voice_manager;
-    voice_manager.set_output_callbacks(callbacks, context);
+    voice_manager.set_output_callbacks(callbacks_mono, context);
     voice_manager.set_strategy(VoiceManager<1>::Strategy::UnisonNewestNote);
 
-    std::vector<TestVoice::State> expected_states;
+    sm.on(0, {0, TestVoice::State::Gate::Open});
+    sm.on(1, {1, TestVoice::State::Gate::Open});
+    sm.on(2, {2, TestVoice::State::Gate::Open});
 
-    voice_manager.note_on(0);
-    expected_states.push_back({0, TestVoice::State::Gate::Open});
-    voice_manager.note_on(1);
-    expected_states.push_back({1, TestVoice::State::Gate::Open});
-    voice_manager.note_on(2);
-    expected_states.push_back({2, TestVoice::State::Gate::Open});
+    sm.off(2, {1, TestVoice::State::Gate::ReTrigger});
+    sm.off(1, {0, TestVoice::State::Gate::ReTrigger});
+    sm.off(0, {0, TestVoice::State::Gate::Closed});
 
-    voice_manager.note_off(2);
-    expected_states.push_back({1, TestVoice::State::Gate::Open});
-    voice_manager.note_off(1);
-    expected_states.push_back({0, TestVoice::State::Gate::Open});
-    voice_manager.note_off(0);
-    expected_states.push_back({0, TestVoice::State::Gate::Closed});
+    sm.on(2, {2, TestVoice::State::Gate::Open});
+    sm.on(1, {1, TestVoice::State::Gate::Open});
+    sm.on(0, {0, TestVoice::State::Gate::Open});
 
-    voice_manager.note_on(2);
-    expected_states.push_back({2, TestVoice::State::Gate::Open});
-    voice_manager.note_on(1);
-    expected_states.push_back({1, TestVoice::State::Gate::Open});
-    voice_manager.note_on(0);
-    expected_states.push_back({0, TestVoice::State::Gate::Open});
+    sm.off(2);
+    sm.off(1);
+    sm.off(0, {0, TestVoice::State::Gate::Closed});
 
-    voice_manager.note_off(2);
-    expected_states.push_back({0, TestVoice::State::Gate::Open});
-    voice_manager.note_off(1);
-    expected_states.push_back({0, TestVoice::State::Gate::Open});
-    voice_manager.note_off(0);
-    expected_states.push_back({0, TestVoice::State::Gate::Closed});
-
-    success = success && test_states == expected_states;
-
-    if(!success) {
-        test_states.dump_states_diff(expected_states);
-    }
-
-    return success;
+    return sm.test(test_states);
 };
 
 bool test_voice_allocator_mono_oldest() {
-    bool success = true;
-
     TestVoice test_states;
-    VoiceOutputCallbacks callbacks[1] = {{.start = start, .stop = stop}};
+    std::vector<TestVoice::State> expected_states;
+    VoiceManager<1> voice_manager;
+    TestStepMaker<1> sm(voice_manager, expected_states);
+
     void* context[1] = {&test_states};
 
-    VoiceManager<1> voice_manager;
-    voice_manager.set_output_callbacks(callbacks, context);
+    voice_manager.set_output_callbacks(callbacks_mono, context);
     voice_manager.set_strategy(VoiceManager<1>::Strategy::UnisonOldestNote);
 
-    std::vector<TestVoice::State> expected_states;
+    sm.on(0, {0, TestVoice::State::Gate::Open});
+    sm.on(1);
+    sm.on(2);
 
-    voice_manager.note_on(0);
-    expected_states.push_back({0, TestVoice::State::Gate::Open});
-    voice_manager.note_on(1);
-    expected_states.push_back({0, TestVoice::State::Gate::Open});
-    voice_manager.note_on(2);
-    expected_states.push_back({0, TestVoice::State::Gate::Open});
+    sm.off(0, {1, TestVoice::State::Gate::ReTrigger});
+    sm.off(1, {2, TestVoice::State::Gate::ReTrigger});
+    sm.off(2, {0, TestVoice::State::Gate::Closed});
 
-    voice_manager.note_off(0);
-    expected_states.push_back({1, TestVoice::State::Gate::Open});
-    voice_manager.note_off(1);
-    expected_states.push_back({2, TestVoice::State::Gate::Open});
-    voice_manager.note_off(2);
-    expected_states.push_back({0, TestVoice::State::Gate::Closed});
+    sm.on(2, {2, TestVoice::State::Gate::Open});
+    sm.on(1);
+    sm.on(0);
 
-    voice_manager.note_on(2);
-    expected_states.push_back({2, TestVoice::State::Gate::Open});
-    voice_manager.note_on(1);
-    expected_states.push_back({2, TestVoice::State::Gate::Open});
-    voice_manager.note_on(0);
-    expected_states.push_back({2, TestVoice::State::Gate::Open});
+    sm.off(0);
+    sm.off(1);
+    sm.off(2, {0, TestVoice::State::Gate::Closed});
 
-    voice_manager.note_off(0);
-    expected_states.push_back({2, TestVoice::State::Gate::Open});
-    voice_manager.note_off(1);
-    expected_states.push_back({2, TestVoice::State::Gate::Open});
-    voice_manager.note_off(2);
-    expected_states.push_back({0, TestVoice::State::Gate::Closed});
-
-    success = success && test_states == expected_states;
-
-    if(!success) {
-        test_states.dump_states_diff(expected_states);
-    }
-
-    return success;
+    return sm.test(test_states);
 }
 
 struct Test {
