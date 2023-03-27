@@ -9,12 +9,16 @@ typedef uint8_t VoiceNote;
 /** Start a new note (set note and open gate) */
 typedef void (*VoiceOutputStartCallback)(void*, VoiceNote);
 
+/** Continue old note (set note and do retrigger) */
+typedef void (*VoiceOutputСontinueCallback)(void*, VoiceNote);
+
 /** Stop a note (close gate) */
 typedef void (*VoiceOutputStopCallback)(void*);
 
 /** Callbacks for the voice manager to use to output notes */
 struct VoiceOutputCallbacks {
     VoiceOutputStartCallback start;
+    VoiceOutputСontinueCallback cont;
     VoiceOutputStopCallback stop;
 };
 
@@ -28,12 +32,8 @@ public:
     };
 
     VoiceManager() {
-        for(size_t i = 0; i < VoiceCount; i++) {
-            _callbacks[i].start = NULL;
-            _callbacks[i].stop = NULL;
-            _context[i] = NULL;
-        }
-
+        std::memset(&_callbacks, 0, sizeof(VoiceOutputCallbacks) * VoiceCount);
+        std::memset(&_context, 0, sizeof(void*) * VoiceCount);
         reset();
     }
 
@@ -42,25 +42,21 @@ public:
 
     /** Reset the voice manager */
     void reset() {
-        for(size_t i = 0; i < MaxNotes; i++) {
-            _notes[i] = false;
-        }
+        std::memset(_notes, false, sizeof(bool) * MaxNotes);
+        std::memset(&_voice_notes, InvalidNote, sizeof(VoiceNote) * VoiceCount);
     }
 
     /** Set the strategy to use for voice allocation */
     void set_strategy(Strategy strategy) {
         m_strategy = strategy;
-        reset();
     }
 
     /** Set the callbacks[VoiceCount] to use for output */
     void set_output_callbacks(
         VoiceOutputCallbacks callbacks[VoiceCount],
         void* context[VoiceCount]) {
-        for(size_t i = 0; i < VoiceCount; i++) {
-            _callbacks[i] = callbacks[i];
-            _context[i] = context[i];
-        }
+        std::memcpy(_callbacks, callbacks, sizeof(VoiceOutputCallbacks) * VoiceCount);
+        std::memcpy(_context, context, sizeof(void*) * VoiceCount);
     }
 
     /** Note on */
@@ -85,8 +81,6 @@ public:
         case UnisonOldestNote:
             unison_oldest_note_on();
             break;
-        default:
-            std::abort();
         }
     }
 
@@ -112,8 +106,6 @@ public:
         case UnisonOldestNote:
             unison_oldest_note_off();
             break;
-        default:
-            std::abort();
         }
     }
 
@@ -168,6 +160,7 @@ private:
 
     /** Max midi notes count */
     static constexpr size_t MaxNotes = 128;
+    static constexpr VoiceNote InvalidNote = 0xFF;
 
     /** The notes that are currently playing */
     bool _notes[MaxNotes];
@@ -179,22 +172,52 @@ private:
     VoiceOutputCallbacks _callbacks[VoiceCount];
     void* _context[VoiceCount];
 
+    /** The current notes for each voice */
+    VoiceNote _voice_notes[VoiceCount];
+
     /** The strategy to use for voice allocation */
     Strategy m_strategy;
 
+    void voice_start(size_t voice, VoiceNote note) {
+        if(_voice_notes[voice] != note) {
+            _voice_notes[voice] = note;
+            if(_callbacks[voice].start) {
+                _callbacks[voice].start(_context[voice], note);
+            }
+        }
+    }
+
+    void voice_continue(size_t voice, VoiceNote note) {
+        if(_voice_notes[voice] != note) {
+            _voice_notes[voice] = note;
+            if(_callbacks[voice].cont) {
+                _callbacks[voice].cont(_context[voice], note);
+            }
+        }
+    }
+
+    void voice_stop(size_t voice) {
+        _voice_notes[voice] = InvalidNote;
+        if(_callbacks[voice].stop) {
+            _callbacks[voice].stop(_context[voice]);
+        }
+    }
+
     void all_outputs_start(VoiceNote note) {
         for(size_t i = 0; i < VoiceCount; i++) {
-            if(_callbacks[i].start) {
-                _callbacks[i].start(_context[i], note);
-            }
+            voice_start(i, note);
+        }
+    }
+
+    void all_outputs_continue(VoiceNote note) {
+        for(size_t i = 0; i < VoiceCount; i++) {
+            voice_continue(i, note);
         }
     }
 
     void all_outputs_stop() {
         for(size_t i = 0; i < VoiceCount; i++) {
-            if(_callbacks[i].stop) {
-                _callbacks[i].stop(_context[i]);
-            }
+            voice_stop(i);
         }
     }
 
@@ -219,7 +242,7 @@ private:
     void unison_highest_note_off() {
         VoiceNote highest_note = 0;
         if(get_highest_note(highest_note)) {
-            all_outputs_start(highest_note);
+            all_outputs_continue(highest_note);
         } else {
             all_outputs_stop();
         }
@@ -245,7 +268,7 @@ private:
     void unison_lowest_note_off() {
         VoiceNote lowest_note = 0;
         if(get_lowest_note(lowest_note)) {
-            all_outputs_start(lowest_note);
+            all_outputs_continue(lowest_note);
         } else {
             all_outputs_stop();
         }
@@ -257,7 +280,7 @@ private:
 
     void unison_newest_note_off() {
         if(!_note_stack.empty()) {
-            all_outputs_start(_note_stack.top());
+            all_outputs_continue(_note_stack.top());
         } else {
             all_outputs_stop();
         }
@@ -269,7 +292,7 @@ private:
 
     void unison_oldest_note_off() {
         if(!_note_stack.empty()) {
-            all_outputs_start(_note_stack.bottom());
+            all_outputs_continue(_note_stack.bottom());
         } else {
             all_outputs_stop();
         }
