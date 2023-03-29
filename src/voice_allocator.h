@@ -2,8 +2,8 @@
 
 #include <stdint.h>
 #include <stdlib.h>
-#include <bitset>
 #include <numeric>
+#include <algorithm>
 
 typedef uint8_t VoiceNote;
 
@@ -290,8 +290,8 @@ public:
     void set_output_callbacks(
         VoiceOutputCallbacks callbacks[VoiceCount],
         void* context[VoiceCount]) {
-        std::memcpy(_callbacks, callbacks, sizeof(VoiceOutputCallbacks) * VoiceCount);
-        std::memcpy(_context, context, sizeof(void*) * VoiceCount);
+        std::copy(callbacks, callbacks + VoiceCount, _callbacks);
+        std::copy(context, context + VoiceCount, _context);
     }
 
     void reset() {
