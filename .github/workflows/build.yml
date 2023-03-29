@@ -16,10 +16,10 @@ jobs:
       - uses: lukka/get-cmake@latest
         with:
           cmakeVersion: 3.17.2
-      - name: Create build directory
-        run: mkdir build/
       - name: Run CMake
         working-directory: ./build
         run: cmake ../
       - name: Build
         run: cmake --build build/
+      - name: Test
+        run: cd build && ctest --output-on-failure
