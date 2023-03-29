@@ -8,12 +8,18 @@ on:
       - '*'
   pull_request:
 
-name: Build & Test
-  uses: ashutoshvarma/action-cmake-build@master
-  with:
-    build-dir: ${{ runner.workspace }}/build
-    cc: gcc
-    cxx: g++
-    build-type: Release
-    run-test: true
-    parallel: 14
+jobs:
+  test-cmake-minimum:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: 3.17.2
+      - name: Create build directory
+        run: mkdir build/
+      - name: Run CMake
+        working-directory: ./build
+        run: cmake ../
+      - name: Build
+        run: cmake --build build/
