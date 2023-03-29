@@ -23,4 +23,5 @@ jobs:
       - name: Build
         run: cmake --build build/
       - name: Test
-        run: cd build && ctest --output-on-failure
+        working-directory: ./build
+        run: ctest --output-on-failure
