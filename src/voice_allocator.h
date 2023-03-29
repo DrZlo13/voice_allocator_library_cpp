@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <numeric>
 #include <algorithm>
+#include <cstring>
 
 typedef uint8_t VoiceNote;
 
