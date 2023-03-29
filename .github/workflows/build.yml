@@ -1,0 +1,19 @@
+name: 'Build'
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  pull_request:
+
+name: Build & Test
+  uses: ashutoshvarma/action-cmake-build@master
+  with:
+    build-dir: ${{ runner.workspace }}/build
+    cc: gcc
+    cxx: g++
+    build-type: Release
+    run-test: true
+    parallel: 14

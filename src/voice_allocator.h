@@ -34,13 +34,9 @@ public:
         // PolyMostRecentlyUsed,
         // PolyRandom,
         // PolyRoundRobin,
-        // PolySameNote,
     };
 
     VoiceManager() {
-        std::fill_n(
-            _callbacks, VoiceCount, VoiceOutputCallbacks{.start = 0, .cont = 0, .stop = 0});
-        std::fill_n(_context, VoiceCount, nullptr);
         reset();
     }
 
@@ -115,15 +111,10 @@ private:
     class VoiceStack;
 
     static constexpr size_t MaxNotes = 128;
-    const VoiceNote InvalidNote = 0xFF;
 
     /** The note stack */
     NoteStack _note_stack;
     VoiceStack _voice_stack;
-
-    /** The callbacks and context to use for output */
-    VoiceOutputCallbacks _callbacks[VoiceCount];
-    void* _context[VoiceCount];
 
     /** The strategy to use for voice allocation */
     Strategy _strategy;
@@ -290,6 +281,9 @@ private:
 template <size_t VoiceCount> class VoiceManager<VoiceCount>::VoiceStack {
 public:
     VoiceStack() {
+        std::fill_n(
+            _callbacks, VoiceCount, VoiceOutputCallbacks{.start = 0, .cont = 0, .stop = 0});
+        std::fill_n(_context, VoiceCount, nullptr);
         reset();
     }
 
@@ -303,15 +297,6 @@ public:
     void reset() {
         std::iota(_voice, _voice + VoiceCount, 0);
         std::fill_n(_notes, VoiceCount, InvalidNote);
-    }
-
-    void touch(size_t voice_index, VoiceNote note) {
-        size_t v = _voice[voice_index];
-        for(size_t i = voice_index; i > 0; i--) {
-            _voice[i] = _voice[i - 1];
-        }
-        _voice[0] = v;
-        _notes[v] = note;
     }
 
     size_t get_least_recently_used() {
@@ -334,15 +319,24 @@ public:
         return _round_robin;
     }
 
+    bool get_free(size_t& voice) {
+        for(size_t i = 0; i < VoiceCount; i++) {
+            if(_notes[i] == InvalidNote) {
+                voice = i;
+                return true;
+            }
+        }
+        return false;
+    }
+
     void voice_start(size_t voice, VoiceNote note) {
         if(_notes[voice] != note) {
             _notes[voice] = note;
             if(_callbacks[voice].start) {
                 _callbacks[voice].start(_context[voice], note);
             }
+            touch(voice, note);
         }
-
-        touch(voice, note);
     }
 
     void voice_continue(size_t voice, VoiceNote note) {
@@ -351,9 +345,8 @@ public:
             if(_callbacks[voice].cont) {
                 _callbacks[voice].cont(_context[voice], note);
             }
+            touch(voice, note);
         }
-
-        touch(voice, note);
     }
 
     void voice_stop(size_t voice) {
@@ -374,7 +367,14 @@ private:
     VoiceNote _notes[VoiceCount];
     const VoiceNote InvalidNote = 0xFF;
 
-    /** Callbacks for the voice manager to use to output notes */
+    /** Callbacks to output events */
     VoiceOutputCallbacks _callbacks[VoiceCount];
     void* _context[VoiceCount];
+
+    void touch(size_t voice_index, VoiceNote note) {
+        size_t v = _voice[voice_index];
+        std::memmove(_voice + 1, _voice, sizeof(size_t) * voice_index);
+        _voice[0] = v;
+        _notes[v] = note;
+    }
 };
