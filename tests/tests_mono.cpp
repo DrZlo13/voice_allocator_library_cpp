@@ -3,6 +3,8 @@
 #include <vector>
 #include <voice_allocator.h>
 
+using namespace voice_allocator;
+
 class TestVoice {
 public:
     struct State {

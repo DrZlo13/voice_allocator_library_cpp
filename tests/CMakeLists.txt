@@ -12,6 +12,6 @@ set(SOURCES
 
 add_executable(voice_allocator_library_cpp_tests ${SOURCES})
 
-target_link_libraries(voice_allocator_library_cpp_tests PRIVATE "voice_allocator_library_cpp")
+target_link_libraries(voice_allocator_library_cpp_tests "voice_allocator_library_cpp")
 
 add_test(NAME voice_allocator_library_cpp_tests COMMAND "voice_allocator_library_cpp_tests")

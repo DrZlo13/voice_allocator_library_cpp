@@ -6,7 +6,15 @@
 #include <algorithm>
 #include <cstring>
 
+namespace voice_allocator {
+
 typedef uint8_t VoiceNote;
+
+namespace constants {
+const size_t MaxNotes = 128;
+const VoiceNote InvalidNote = UINT8_MAX;
+const size_t InvalidVoice = SIZE_MAX;
+}
 
 /** Start a new note (set note and open gate) */
 typedef void (*VoiceOutputStartCallback)(void*, VoiceNote);
@@ -59,8 +67,8 @@ public:
 
     /** Note on */
     void note_on(VoiceNote note) {
-        if(note >= MaxNotes) {
-            note = MaxNotes - 1;
+        if(note >= constants::MaxNotes) {
+            note = constants::MaxNotes - 1;
         }
 
         if(strategy_is_unison()) {
@@ -91,8 +99,8 @@ public:
 
     /** Note off */
     void note_off(VoiceNote note) {
-        if(note >= MaxNotes) {
-            note = MaxNotes - 1;
+        if(note >= constants::MaxNotes) {
+            note = constants::MaxNotes - 1;
         }
 
         if(strategy_is_unison()) {
@@ -122,10 +130,6 @@ public:
 private:
     class NoteStack;
     class VoiceStack;
-
-    static constexpr size_t MaxNotes = 128;
-    static constexpr VoiceNote InvalidNote = UINT8_MAX;
-    static constexpr size_t InvalidVoice = SIZE_MAX;
 
     /** The note stack */
     NoteStack _note_stack;
@@ -231,7 +235,7 @@ private:
 
     void poly_least_recently_used_note_on(VoiceNote note) {
         size_t voice = _voice_stack.get_free();
-        if(voice == InvalidVoice) {
+        if(voice == constants::InvalidVoice) {
             voice = _voice_stack.get_least_recently_used();
         }
         _voice_stack.voice_start(voice, note);
@@ -239,7 +243,7 @@ private:
 
     void poly_most_recently_used_note_on(VoiceNote note) {
         size_t voice = _voice_stack.get_free();
-        if(voice == InvalidVoice) {
+        if(voice == constants::InvalidVoice) {
             voice = _voice_stack.get_most_recently_used();
         }
         _voice_stack.voice_start(voice, note);
@@ -247,7 +251,7 @@ private:
 
     void poly_note_off(VoiceNote note) {
         size_t voice = _voice_stack.get_by_note(note);
-        if(voice != InvalidVoice) {
+        if(voice != constants::InvalidVoice) {
             _voice_stack.voice_stop(voice);
         }
     }
@@ -261,14 +265,14 @@ public:
 
     void reset() {
         _top = 0;
-        std::fill_n(_notes, VoiceManager::MaxNotes, VoiceManager::InvalidNote);
+        std::fill_n(_notes, constants::MaxNotes, constants::InvalidNote);
     }
 
     void push(VoiceNote note) {
         _notes[_top] = note;
         _top++;
-        if(_top >= VoiceManager::MaxNotes) {
-            _top = VoiceManager::MaxNotes - 1;
+        if(_top >= constants::MaxNotes) {
+            _top = constants::MaxNotes - 1;
         }
     }
 
@@ -307,7 +311,7 @@ public:
     }
 
     VoiceNote get_lowest_note() {
-        VoiceNote lowest_note = VoiceManager::MaxNotes - 1;
+        VoiceNote lowest_note = constants::MaxNotes - 1;
         for(size_t i = 0; i < _top; i++) {
             if(_notes[i] < lowest_note) {
                 lowest_note = _notes[i];
@@ -317,7 +321,7 @@ public:
     }
 
 private:
-    VoiceNote _notes[VoiceManager::MaxNotes];
+    VoiceNote _notes[constants::MaxNotes];
     size_t _top;
 };
 
@@ -325,7 +329,7 @@ template <size_t VoiceCount> class VoiceManager<VoiceCount>::VoiceStack {
 public:
     VoiceStack() {
         std::fill_n(
-            _callbacks, VoiceCount, VoiceOutputCallbacks{.start = 0, .cont = 0, .stop = 0});
+            _callbacks, VoiceCount, (VoiceOutputCallbacks){.start = 0, .cont = 0, .stop = 0});
         std::fill_n(_context, VoiceCount, nullptr);
         reset();
     }
@@ -338,8 +342,9 @@ public:
     }
 
     void reset() {
+        _round_robin = 0;
         std::iota(_voice, _voice + VoiceCount, 0);
-        std::fill_n(_notes, VoiceCount, VoiceManager::InvalidNote);
+        std::fill_n(_notes, VoiceCount, constants::InvalidNote);
     }
 
     size_t get_by_note(VoiceNote note) {
@@ -348,16 +353,16 @@ public:
                 return i;
             }
         }
-        return VoiceManager::InvalidVoice;
+        return constants::InvalidVoice;
     }
 
     size_t get_free() {
         for(size_t i = 0; i < VoiceCount; i++) {
-            if(_notes[i] == VoiceManager::InvalidNote) {
+            if(_notes[i] == constants::InvalidNote) {
                 return i;
             }
         }
-        return VoiceManager::InvalidVoice;
+        return constants::InvalidVoice;
     }
 
     size_t get_least_recently_used() {
@@ -389,11 +394,11 @@ public:
     }
 
     void voice_stop(size_t voice, bool need_to_touch = true) {
-        _notes[voice] = VoiceManager::InvalidNote;
+        _notes[voice] = constants::InvalidNote;
         if(_callbacks[voice].stop) {
             _callbacks[voice].stop(_context[voice]);
         }
-        if(need_to_touch) touch(voice, VoiceManager::InvalidNote);
+        if(need_to_touch) touch(voice, constants::InvalidNote);
     }
 
 private:
@@ -401,7 +406,7 @@ private:
     size_t _voice[VoiceCount];
 
     /** Round robin index */
-    size_t _round_robin = 0;
+    size_t _round_robin;
 
     /** Array of voice notes */
     VoiceNote _notes[VoiceCount];
@@ -424,3 +429,4 @@ private:
         _notes[voice_index] = note;
     }
 };
+}
