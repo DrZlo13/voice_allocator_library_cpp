@@ -31,10 +31,8 @@ public:
         UnisonLowestNote,
         UnisonNewestNote,
         UnisonOldestNote,
-        // PolyLeastRecentlyUsed,
-        // PolyMostRecentlyUsed,
-        // PolyRandom,
-        // PolyRoundRobin,
+        PolyLeastRecentlyUsed,
+        PolyMostRecentlyUsed,
     };
 
     VoiceManager() {
@@ -65,7 +63,9 @@ public:
             note = MaxNotes - 1;
         }
 
-        _note_stack.push(note);
+        if(strategy_is_unison()) {
+            _note_stack.push(note);
+        }
 
         switch(_strategy) {
         case UnisonHighestNote:
@@ -80,6 +80,12 @@ public:
         case UnisonOldestNote:
             unison_oldest_note_on();
             break;
+        case PolyLeastRecentlyUsed:
+            poly_least_recently_used_note_on(note);
+            break;
+        case PolyMostRecentlyUsed:
+            poly_most_recently_used_note_on(note);
+            break;
         }
     }
 
@@ -89,7 +95,9 @@ public:
             note = MaxNotes - 1;
         }
 
-        _note_stack.pop(note);
+        if(strategy_is_unison()) {
+            _note_stack.pop(note);
+        }
 
         switch(_strategy) {
         case UnisonHighestNote:
@@ -104,6 +112,10 @@ public:
         case UnisonOldestNote:
             unison_oldest_note_off();
             break;
+        case PolyLeastRecentlyUsed:
+        case PolyMostRecentlyUsed:
+            poly_note_off(note);
+            break;
         }
     }
 
@@ -112,6 +124,8 @@ private:
     class VoiceStack;
 
     static constexpr size_t MaxNotes = 128;
+    static constexpr VoiceNote InvalidNote = UINT8_MAX;
+    static constexpr size_t InvalidVoice = SIZE_MAX;
 
     /** The note stack */
     NoteStack _note_stack;
@@ -120,21 +134,26 @@ private:
     /** The strategy to use for voice allocation */
     Strategy _strategy;
 
+    bool strategy_is_unison() {
+        return _strategy == UnisonHighestNote || _strategy == UnisonLowestNote ||
+               _strategy == UnisonNewestNote || _strategy == UnisonOldestNote;
+    }
+
     void unison_outputs_start(VoiceNote note) {
         for(size_t i = 0; i < VoiceCount; i++) {
-            _voice_stack.voice_start(i, note);
+            _voice_stack.voice_start(i, note, false);
         }
     }
 
     void unison_outputs_continue(VoiceNote note) {
         for(size_t i = 0; i < VoiceCount; i++) {
-            _voice_stack.voice_continue(i, note);
+            _voice_stack.voice_continue(i, note, false);
         }
     }
 
     void unison_outputs_stop() {
         for(size_t i = 0; i < VoiceCount; i++) {
-            _voice_stack.voice_stop(i);
+            _voice_stack.voice_stop(i, false);
         }
     }
 
@@ -209,6 +228,29 @@ private:
             unison_outputs_stop();
         }
     }
+
+    void poly_least_recently_used_note_on(VoiceNote note) {
+        size_t voice = _voice_stack.get_free();
+        if(voice == InvalidVoice) {
+            voice = _voice_stack.get_least_recently_used();
+        }
+        _voice_stack.voice_start(voice, note);
+    }
+
+    void poly_most_recently_used_note_on(VoiceNote note) {
+        size_t voice = _voice_stack.get_free();
+        if(voice == InvalidVoice) {
+            voice = _voice_stack.get_most_recently_used();
+        }
+        _voice_stack.voice_start(voice, note);
+    }
+
+    void poly_note_off(VoiceNote note) {
+        size_t voice = _voice_stack.get_by_note(note);
+        if(voice != InvalidVoice) {
+            _voice_stack.voice_stop(voice);
+        }
+    }
 };
 
 template <size_t VoiceCount> class VoiceManager<VoiceCount>::NoteStack {
@@ -219,7 +261,7 @@ public:
 
     void reset() {
         _top = 0;
-        std::fill_n(_notes, VoiceManager::MaxNotes, 0);
+        std::fill_n(_notes, VoiceManager::MaxNotes, VoiceManager::InvalidNote);
     }
 
     void push(VoiceNote note) {
@@ -265,7 +307,7 @@ public:
     }
 
     VoiceNote get_lowest_note() {
-        VoiceNote lowest_note = 127;
+        VoiceNote lowest_note = VoiceManager::MaxNotes - 1;
         for(size_t i = 0; i < _top; i++) {
             if(_notes[i] < lowest_note) {
                 lowest_note = _notes[i];
@@ -297,7 +339,25 @@ public:
 
     void reset() {
         std::iota(_voice, _voice + VoiceCount, 0);
-        std::fill_n(_notes, VoiceCount, InvalidNote);
+        std::fill_n(_notes, VoiceCount, VoiceManager::InvalidNote);
+    }
+
+    size_t get_by_note(VoiceNote note) {
+        for(size_t i = 0; i < VoiceCount; i++) {
+            if(_notes[i] == note) {
+                return i;
+            }
+        }
+        return VoiceManager::InvalidVoice;
+    }
+
+    size_t get_free() {
+        for(size_t i = 0; i < VoiceCount; i++) {
+            if(_notes[i] == VoiceManager::InvalidNote) {
+                return i;
+            }
+        }
+        return VoiceManager::InvalidVoice;
     }
 
     size_t get_least_recently_used() {
@@ -308,53 +368,32 @@ public:
         return _voice[0];
     }
 
-    size_t get_random() {
-        return std::rand() % VoiceCount;
-    }
-
-    size_t get_round_robin() {
-        _round_robin++;
-        if(_round_robin >= VoiceCount) {
-            _round_robin = 0;
-        }
-        return _round_robin;
-    }
-
-    bool get_free(size_t& voice) {
-        for(size_t i = 0; i < VoiceCount; i++) {
-            if(_notes[i] == InvalidNote) {
-                voice = i;
-                return true;
-            }
-        }
-        return false;
-    }
-
-    void voice_start(size_t voice, VoiceNote note) {
+    void voice_start(size_t voice, VoiceNote note, bool need_to_touch = true) {
         if(_notes[voice] != note) {
             _notes[voice] = note;
             if(_callbacks[voice].start) {
                 _callbacks[voice].start(_context[voice], note);
             }
-            touch(voice, note);
+            if(need_to_touch) touch(voice, note);
         }
     }
 
-    void voice_continue(size_t voice, VoiceNote note) {
+    void voice_continue(size_t voice, VoiceNote note, bool need_to_touch = true) {
         if(_notes[voice] != note) {
             _notes[voice] = note;
             if(_callbacks[voice].cont) {
                 _callbacks[voice].cont(_context[voice], note);
             }
-            touch(voice, note);
+            if(need_to_touch) touch(voice, note);
         }
     }
 
-    void voice_stop(size_t voice) {
-        _notes[voice] = InvalidNote;
+    void voice_stop(size_t voice, bool need_to_touch = true) {
+        _notes[voice] = VoiceManager::InvalidNote;
         if(_callbacks[voice].stop) {
             _callbacks[voice].stop(_context[voice]);
         }
+        if(need_to_touch) touch(voice, VoiceManager::InvalidNote);
     }
 
 private:
@@ -366,16 +405,22 @@ private:
 
     /** Array of voice notes */
     VoiceNote _notes[VoiceCount];
-    const VoiceNote InvalidNote = 0xFF;
 
     /** Callbacks to output events */
     VoiceOutputCallbacks _callbacks[VoiceCount];
     void* _context[VoiceCount];
 
     void touch(size_t voice_index, VoiceNote note) {
-        size_t v = _voice[voice_index];
-        std::memmove(_voice + 1, _voice, sizeof(size_t) * voice_index);
-        _voice[0] = v;
-        _notes[v] = note;
+        // Move voice to the start of the stack
+        int32_t source = VoiceCount - 1;
+        int32_t destination = VoiceCount - 1;
+        while(source >= 0) {
+            if(_voice[source] != voice_index) {
+                _voice[destination--] = _voice[source];
+            }
+            --source;
+        }
+        _voice[0] = voice_index;
+        _notes[voice_index] = note;
     }
 };
