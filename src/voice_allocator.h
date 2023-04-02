@@ -181,8 +181,9 @@ private:
 
     void unison_highest_note_on() {
         VoiceNote highest_note;
-        get_highest_note(highest_note);
-        unison_outputs_start(highest_note);
+        if(get_highest_note(highest_note)) {
+            unison_outputs_start(highest_note);
+        }
     }
 
     void unison_highest_note_off() {
