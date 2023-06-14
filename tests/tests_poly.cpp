@@ -3,7 +3,7 @@
 #include <vector>
 #include <voice_allocator.h>
 
-using namespace voice_allocator;
+using namespace VoiceAllocator;
 
 class PolyTestVoice {
 public:

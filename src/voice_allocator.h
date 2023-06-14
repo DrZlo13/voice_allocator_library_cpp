@@ -6,11 +6,11 @@
 #include <algorithm>
 #include <cstring>
 
-namespace voice_allocator {
+namespace VoiceAllocator {
 
 typedef uint8_t VoiceNote;
 
-namespace constants {
+namespace Constants {
 const size_t MaxNotes = 128;
 const VoiceNote InvalidNote = UINT8_MAX;
 const size_t InvalidVoice = SIZE_MAX;
@@ -67,8 +67,8 @@ public:
 
     /** Note on */
     void note_on(VoiceNote note) {
-        if(note >= constants::MaxNotes) {
-            note = constants::MaxNotes - 1;
+        if(note >= Constants::MaxNotes) {
+            note = Constants::MaxNotes - 1;
         }
 
         if(strategy_is_unison()) {
@@ -99,8 +99,8 @@ public:
 
     /** Note off */
     void note_off(VoiceNote note) {
-        if(note >= constants::MaxNotes) {
-            note = constants::MaxNotes - 1;
+        if(note >= Constants::MaxNotes) {
+            note = Constants::MaxNotes - 1;
         }
 
         if(strategy_is_unison()) {
@@ -236,7 +236,7 @@ private:
 
     void poly_least_recently_used_note_on(VoiceNote note) {
         size_t voice = _voice_stack.get_free();
-        if(voice == constants::InvalidVoice) {
+        if(voice == Constants::InvalidVoice) {
             voice = _voice_stack.get_least_recently_used();
         }
         _voice_stack.voice_start(voice, note);
@@ -244,7 +244,7 @@ private:
 
     void poly_most_recently_used_note_on(VoiceNote note) {
         size_t voice = _voice_stack.get_free();
-        if(voice == constants::InvalidVoice) {
+        if(voice == Constants::InvalidVoice) {
             voice = _voice_stack.get_most_recently_used();
         }
         _voice_stack.voice_start(voice, note);
@@ -252,7 +252,7 @@ private:
 
     void poly_note_off(VoiceNote note) {
         size_t voice = _voice_stack.get_by_note(note);
-        if(voice != constants::InvalidVoice) {
+        if(voice != Constants::InvalidVoice) {
             _voice_stack.voice_stop(voice);
         }
     }
@@ -266,14 +266,14 @@ public:
 
     void reset() {
         _top = 0;
-        std::fill_n(_notes, constants::MaxNotes, constants::InvalidNote);
+        std::fill_n(_notes, Constants::MaxNotes, Constants::InvalidNote);
     }
 
     void push(VoiceNote note) {
         _notes[_top] = note;
         _top++;
-        if(_top >= constants::MaxNotes) {
-            _top = constants::MaxNotes - 1;
+        if(_top >= Constants::MaxNotes) {
+            _top = Constants::MaxNotes - 1;
         }
     }
 
@@ -312,7 +312,7 @@ public:
     }
 
     VoiceNote get_lowest_note() {
-        VoiceNote lowest_note = constants::MaxNotes - 1;
+        VoiceNote lowest_note = Constants::MaxNotes - 1;
         for(size_t i = 0; i < _top; i++) {
             if(_notes[i] < lowest_note) {
                 lowest_note = _notes[i];
@@ -322,7 +322,7 @@ public:
     }
 
 private:
-    VoiceNote _notes[constants::MaxNotes];
+    VoiceNote _notes[Constants::MaxNotes];
     size_t _top;
 };
 
@@ -345,7 +345,7 @@ public:
     void reset() {
         _round_robin = 0;
         std::iota(_voice, _voice + VoiceCount, 0);
-        std::fill_n(_notes, VoiceCount, constants::InvalidNote);
+        std::fill_n(_notes, VoiceCount, Constants::InvalidNote);
     }
 
     size_t get_by_note(VoiceNote note) {
@@ -354,16 +354,16 @@ public:
                 return i;
             }
         }
-        return constants::InvalidVoice;
+        return Constants::InvalidVoice;
     }
 
     size_t get_free() {
         for(size_t i = 0; i < VoiceCount; i++) {
-            if(_notes[i] == constants::InvalidNote) {
+            if(_notes[i] == Constants::InvalidNote) {
                 return i;
             }
         }
-        return constants::InvalidVoice;
+        return Constants::InvalidVoice;
     }
 
     size_t get_least_recently_used() {
@@ -395,11 +395,11 @@ public:
     }
 
     void voice_stop(size_t voice, bool need_to_touch = true) {
-        _notes[voice] = constants::InvalidNote;
+        _notes[voice] = Constants::InvalidNote;
         if(_callbacks[voice].stop) {
             _callbacks[voice].stop(_context[voice]);
         }
-        if(need_to_touch) touch(voice, constants::InvalidNote);
+        if(need_to_touch) touch(voice, Constants::InvalidNote);
     }
 
 private:
